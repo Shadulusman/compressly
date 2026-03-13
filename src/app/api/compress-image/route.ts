@@ -5,6 +5,20 @@ import { validateImageType } from "@/lib/validate-file";
 
 const MAX_SIZE = 20 * 1024 * 1024; // 20MB
 
+type CompressionLevel = "light" | "balanced" | "strong";
+
+const LEVEL_QUALITY: Record<CompressionLevel, number> = {
+  light: 85,
+  balanced: 65,
+  strong: 45,
+};
+
+const LEVEL_PNG_COMPRESSION: Record<CompressionLevel, number> = {
+  light: 6,
+  balanced: 8,
+  strong: 9,
+};
+
 export async function POST(request: NextRequest) {
   const ip = request.headers.get("x-forwarded-for") || "unknown";
   if (!checkRateLimit(ip)) {
@@ -14,6 +28,7 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File;
+    const level = (formData.get("level") as CompressionLevel) || "balanced";
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -37,20 +52,22 @@ export async function POST(request: NextRequest) {
 
     const image = sharp(buffer);
     const metadata = await image.metadata();
+    const quality = LEVEL_QUALITY[level] || LEVEL_QUALITY.balanced;
+    const pngCompression = LEVEL_PNG_COMPRESSION[level] || LEVEL_PNG_COMPRESSION.balanced;
 
     let compressed: Buffer;
     const format = metadata.format;
 
     if (format === "jpeg" || format === "jpg") {
-      compressed = await image.jpeg({ quality: 80, mozjpeg: true }).toBuffer();
+      compressed = await image.jpeg({ quality, mozjpeg: true }).toBuffer();
     } else if (format === "png") {
       compressed = await image
-        .png({ compressionLevel: 9, palette: true })
+        .png({ compressionLevel: pngCompression, palette: level !== "light" })
         .toBuffer();
     } else if (format === "webp") {
-      compressed = await image.webp({ quality: 80 }).toBuffer();
+      compressed = await image.webp({ quality }).toBuffer();
     } else {
-      compressed = await image.jpeg({ quality: 80, mozjpeg: true }).toBuffer();
+      compressed = await image.jpeg({ quality, mozjpeg: true }).toBuffer();
     }
 
     // Only return compressed if it's actually smaller

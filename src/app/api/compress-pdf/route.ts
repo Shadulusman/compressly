@@ -5,6 +5,14 @@ import { validatePdfType } from "@/lib/validate-file";
 
 const MAX_SIZE = 50 * 1024 * 1024; // 50MB
 
+type CompressionLevel = "light" | "balanced" | "strong";
+
+const LEVEL_OBJECTS_PER_TICK: Record<CompressionLevel, number> = {
+  light: 200,
+  balanced: 100,
+  strong: 50,
+};
+
 export async function POST(request: NextRequest) {
   const ip = request.headers.get("x-forwarded-for") || "unknown";
   if (!checkRateLimit(ip)) {
@@ -14,6 +22,7 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File;
+    const level = (formData.get("level") as CompressionLevel) || "balanced";
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -47,10 +56,18 @@ export async function POST(request: NextRequest) {
     pdfDoc.setProducer("");
     pdfDoc.setCreator("");
 
+    // Balanced and Strong: also reset dates
+    if (level === "balanced" || level === "strong") {
+      pdfDoc.setCreationDate(new Date(0));
+      pdfDoc.setModificationDate(new Date(0));
+    }
+
+    const objectsPerTick = LEVEL_OBJECTS_PER_TICK[level] || LEVEL_OBJECTS_PER_TICK.balanced;
+
     const compressed = await pdfDoc.save({
       useObjectStreams: true,
       addDefaultPage: false,
-      objectsPerTick: 50,
+      objectsPerTick,
     });
 
     // Return compressed if smaller, otherwise original
