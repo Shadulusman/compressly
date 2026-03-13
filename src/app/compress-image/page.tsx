@@ -9,8 +9,6 @@ import CompressionLevelSelector, {
   type CompressionLevel,
 } from "@/components/CompressionLevelSelector";
 import AdPlaceholder from "@/components/AdPlaceholder";
-import { compressImageClient } from "@/lib/compress-image-client";
-
 const MAX_SIZE = 20 * 1024 * 1024; // 20MB
 
 interface PendingFile {
@@ -51,24 +49,19 @@ export default function CompressImagePage() {
       const { file, id: resultId } = pendingFiles[i];
 
       try {
-        let compressed: File | Blob;
-
-        // Use server-side compression for large files
-        if (file.size > 5 * 1024 * 1024) {
-          const formData = new FormData();
-          formData.append("file", file);
-          formData.append("level", compressionLevel);
-          const res = await fetch("/api/compress-image", {
-            method: "POST",
-            body: formData,
-          });
-          if (!res.ok) throw new Error("Server compression failed");
-          compressed = await res.blob();
-        } else {
-          compressed = await compressImageClient(file, {
-            level: compressionLevel,
-          });
+        // Always use server-side sharp for real compression
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("level", compressionLevel);
+        const res = await fetch("/api/compress-image", {
+          method: "POST",
+          body: formData,
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || "Compression failed");
         }
+        const compressed = await res.blob();
 
         const url = URL.createObjectURL(compressed);
 

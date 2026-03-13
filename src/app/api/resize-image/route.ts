@@ -7,24 +7,10 @@ const MAX_SIZE = 20 * 1024 * 1024; // 20MB
 
 type CompressionLevel = "light" | "balanced" | "strong";
 
-// Aggressive quality settings that produce real compression
 const LEVEL_QUALITY: Record<CompressionLevel, number> = {
   light: 75,
   balanced: 50,
   strong: 30,
-};
-
-const LEVEL_PNG_COMPRESSION: Record<CompressionLevel, number> = {
-  light: 6,
-  balanced: 8,
-  strong: 9,
-};
-
-// Downscale large images for more aggressive compression
-const LEVEL_MAX_DIMENSION: Record<CompressionLevel, number | null> = {
-  light: null, // no resize
-  balanced: 2048, // cap at 2048px
-  strong: 1600, // cap at 1600px
 };
 
 export async function POST(request: NextRequest) {
@@ -37,6 +23,7 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const file = formData.get("file") as File;
     const level = (formData.get("level") as CompressionLevel) || "balanced";
+    const maxDimension = Number(formData.get("maxDimension")) || 1920;
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -58,15 +45,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const quality = LEVEL_QUALITY[level] || LEVEL_QUALITY.balanced;
+
     let image = sharp(buffer);
     const metadata = await image.metadata();
-    const quality = LEVEL_QUALITY[level] || LEVEL_QUALITY.balanced;
-    const pngCompression = LEVEL_PNG_COMPRESSION[level] || LEVEL_PNG_COMPRESSION.balanced;
-    const maxDimension = LEVEL_MAX_DIMENSION[level];
 
-    // Downscale large images if the level specifies a max dimension
+    // Resize to target dimension
     if (
-      maxDimension &&
       metadata.width &&
       metadata.height &&
       (metadata.width > maxDimension || metadata.height > maxDimension)
@@ -85,41 +70,28 @@ export async function POST(request: NextRequest) {
     if (format === "jpeg" || format === "jpg") {
       compressed = await image.jpeg({ quality, mozjpeg: true }).toBuffer();
     } else if (format === "png") {
-      // For strong/balanced, convert PNG to 8-bit palette for major savings
-      if (level === "strong") {
-        compressed = await image
-          .png({ compressionLevel: pngCompression, palette: true, colours: 128 })
-          .toBuffer();
-      } else if (level === "balanced") {
-        compressed = await image
-          .png({ compressionLevel: pngCompression, palette: true, colours: 200 })
-          .toBuffer();
-      } else {
-        compressed = await image
-          .png({ compressionLevel: pngCompression })
-          .toBuffer();
-      }
+      compressed = await image
+        .png({ compressionLevel: 9, palette: level !== "light", colours: level === "strong" ? 128 : 200 })
+        .toBuffer();
     } else if (format === "webp") {
       compressed = await image.webp({ quality }).toBuffer();
     } else {
-      // Fallback: convert to JPEG
       compressed = await image.jpeg({ quality, mozjpeg: true }).toBuffer();
     }
 
-    // Only return compressed if it's actually smaller
     const result = compressed.length < buffer.length ? compressed : buffer;
 
     return new NextResponse(new Uint8Array(result), {
       headers: {
         "Content-Type": file.type || "image/jpeg",
         "Content-Length": result.length.toString(),
-        "Content-Disposition": `attachment; filename="compressed-${file.name}"`,
+        "Content-Disposition": `attachment; filename="resized-${file.name}"`,
       },
     });
   } catch (error) {
-    console.error("Image compression error:", error);
+    console.error("Image resize error:", error);
     return NextResponse.json(
-      { error: "Failed to compress image" },
+      { error: "Failed to resize image" },
       { status: 500 }
     );
   }

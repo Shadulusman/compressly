@@ -9,7 +9,6 @@ import CompressionLevelSelector, {
   type CompressionLevel,
 } from "@/components/CompressionLevelSelector";
 import AdPlaceholder from "@/components/AdPlaceholder";
-import { compressPdfClient } from "@/lib/compress-pdf-client";
 
 const MAX_SIZE = 50 * 1024 * 1024;
 
@@ -51,23 +50,19 @@ export default function ReducePdfSizePage() {
       const { file, id: resultId } = pendingFiles[i];
 
       try {
-        let compressed: Blob;
-
-        if (file.size > 10 * 1024 * 1024) {
-          const formData = new FormData();
-          formData.append("file", file);
-          formData.append("level", compressionLevel);
-          const res = await fetch("/api/compress-pdf", {
-            method: "POST",
-            body: formData,
-          });
-          if (!res.ok) throw new Error("Server compression failed");
-          compressed = await res.blob();
-        } else {
-          compressed = await compressPdfClient(file, {
-            level: compressionLevel,
-          });
+        // Always use server-side API for real compression (recompresses embedded images)
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("level", compressionLevel);
+        const res = await fetch("/api/compress-pdf", {
+          method: "POST",
+          body: formData,
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || "Reduction failed");
         }
+        const compressed = await res.blob();
 
         const url = URL.createObjectURL(compressed);
 
