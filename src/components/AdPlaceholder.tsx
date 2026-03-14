@@ -6,6 +6,9 @@ interface AdPlaceholderProps {
 }
 
 export default function AdPlaceholder({ slot, className }: AdPlaceholderProps) {
+  // Only render the placeholder box in development so it doesn't show on the live site
+  if (process.env.NODE_ENV === "production") return null;
+
   return (
     <div
       className={clsx(
@@ -17,8 +20,7 @@ export default function AdPlaceholder({ slot, className }: AdPlaceholderProps) {
       )}
       data-ad-slot={slot}
     >
-      {/* Google AdSense Placeholder - Replace with actual ad code */}
-      <span className="opacity-0">Advertisement</span>
+      <span className="opacity-50">Ad · {slot}</span>
     </div>
   );
 }
